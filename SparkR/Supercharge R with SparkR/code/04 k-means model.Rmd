@@ -1,0 +1,46 @@
+---
+title: "04 k-means model"
+output: html_notebook
+---
+```{r}
+# Creating SparkR session
+Sys.setenv(SPARK_HOME = "/home/rajiv/spark/spark-2.3.0-bin-hadoop2.7")
+library(SparkR, lib.loc = c(file.path(Sys.getenv("SPARK_HOME"), "R", "lib")))
+sparkR.session(master = "local[*]", sparkConfig = list(spark.driver.memory = "2g"))
+```
+
+
+
+
+```{r}
+# Fit a k-means model with spark.kmeans
+irisDF <- suppressWarnings(createDataFrame(iris))
+kmeansDF <- irisDF
+kmeansTestDF <- irisDF
+kmeansModel <- spark.kmeans(kmeansDF, ~ Sepal_Length + Sepal_Width + Petal_Length + Petal_Width, k = 3)
+# Model summary
+summary(kmeansModel)
+
+```
+```{r}
+# Get fitted 
+showDF(fitted(kmeansModel))
+# Prediction
+kmeansPredictions <- predict(kmeansModel, kmeansTestDF)
+showDF(kmeansPredictions)
+```
+
+```{r}
+gpredictions <- collect(select(kmeansPredictions, "Petal_Length", "Petal_Width", "prediction"))
+names(gpredictions) <- c("Petal_Length", "Petal_Width", "cluster")
+gpredictions$cluster <- as.factor(gpredictions$cluster)
+library(ggplot2)
+ggplot(gpredictions, aes(Petal_Length, Petal_Width, color=gpredictions$cluster)) +
+  geom_point()
+```
+```{r}
+# Matching with original dataset
+ggplot(iris, aes(Petal.Length, Petal.Width, color=as.factor(iris$Species))) +
+  geom_point()
+```
+

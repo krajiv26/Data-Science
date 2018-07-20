@@ -1,0 +1,187 @@
+---
+title: "02 GLM"
+output: html_notebook
+---
+```{r}
+# Creating SparkR session
+Sys.setenv(SPARK_HOME = "/home/rajiv/spark/spark-2.3.0-bin-hadoop2.7")
+library(SparkR, lib.loc = c(file.path(Sys.getenv("SPARK_HOME"), "R", "lib")))
+sparkR.session(master = "local[*]", sparkConfig = list(spark.driver.memory = "2g"))
+```
+
+```{r}
+head(iris)
+```
+```{r}
+# translate in to spark df
+iris_spark_df <- as.DataFrame(iris)
+head(iris_spark_df)
+```
+```{r}
+model <- glm(Sepal_Length ~ Sepal_Width + Species, data=iris_spark_df, family='gaussian')
+```
+```{r}
+summary(model)
+```
+```{r}
+#install.packages("lars")
+library(lars)
+data(diabetes)
+
+```
+
+
+```{r}
+#creating new data.frame in R
+diabetes_all <- data.frame(cbind(diabetes$x, y = diabetes$y))
+head(diabetes_all)
+```
+
+```{r}
+set.seed(1234)
+splitIndex <- base::sample(nrow(diabetes_all), floor(0.75 * nrow(diabetes_all)))
+splitIndex
+```
+
+```{r}
+train_diabetes <- diabetes_all[splitIndex,]
+test_diabetes <- diabetes_all[-splitIndex,]
+```
+
+```{r}
+# transfer to spark
+train_diabetes_sp <- as.DataFrame(train_diabetes)
+test_diabetes_sp <- as.DataFrame(test_diabetes)
+head(train_diabetes_sp)
+head(test_diabetes_sp)
+```
+```{r}
+model <- glm(y ~ age+sex+bmi+map+tc+ldl+hdl+tch+ltg+glu, data = train_diabetes_sp, family = 'gaussian')
+```
+```{r}
+# calculate RMSE
+predictions <- predict(model, newData = test_diabetes_sp)
+#predictions label
+names(predictions)
+```
+
+```{r}
+predictions_details <- select(predictions, predictions$label, predictions$prediction)
+# transfering Spark to r
+predictions_details <- collect(predictions_details)
+```
+
+```{r}
+rmse <- sqrt(mean((predictions_details$label - predictions_details$prediction)^2))
+print(rmse)
+```
+
+```{r}
+summary(diabetes_all$y)
+```
+
+## Logistic Regression
+
+```{r}
+## GLM Logistic Regression
+titanic <- read.csv("http://math.ucdenver.edu/RTutorial/titanic.txt", sep='\t')
+dim(titanic)
+```
+
+```{r}
+names(titanic)
+```
+
+```{r}
+head(titanic)
+```
+
+```{r}
+#create a new feature out of names
+titanic$Title <- ifelse(grepl('Mr',titanic$Name),'Mr',
+                       ifelse(grepl('Mrs',titanic$Name),'Mrs',
+                             ifelse(grepl('Miss', titanic$Name),'Miss','Nothing')))
+#feature engineering
+titanic$Title <- as.factor(titanic$Title)
+#imputing
+titanic$Age[is.na(titanic$Age)] <- median(titanic$Age, na.rm=T)
+median(titanic$Age)
+```
+
+```{r}
+head(titanic)
+```
+
+```{r}
+titanic <- titanic[c('PClass','Age','Sex','Title','Survived')]
+head(titanic)
+```
+
+```{r}
+ # binarize all non-numeric feild
+charcolumns <- names(titanic[sapply(titanic, is.factor)])
+for (colname in charcolumns) {
+  print(paste(colname, length(unique(titanic[, colname]))))
+  for (newcol in unique(titanic[, colname])){
+    if(!is.na(newcol))
+      titanic[, paste0(colname, "_", newcol)] <- ifelse(titanic[,colname] == newcol, 1, 0)
+  }
+  # removing original col
+  titanic <- titanic[, setdiff(names(titanic), colname)]
+}
+```
+
+```{r}
+head(titanic) # so we have created dummy variable
+```
+
+```{r}
+# transforming survived into text data feild
+titanic$Survived <- as.factor(ifelse(titanic$Survived == 1, 'yes', 'no'))
+titanic$Survived
+```
+
+```{r}
+head(titanic)
+```
+
+```{r}
+set.seed(1234)
+splitIndex <- base::sample(nrow(titanic), floor(0.75*nrow(titanic)))
+trainDF <- titanic[splitIndex,]
+testDF <- titanic[-splitIndex,]
+
+# convert everything to spark data frames
+train_titanic_sp <- as.DataFrame(trainDF)
+test_titanic_sp <- as.DataFrame(testDF)
+names(train_titanic_sp)
+```
+
+```{r}
+ # get away with PClass_3rd, Sex_male, Title_nothing to avoid dummy trap
+model <- glm(Survived~Age+PClass_1st+PClass_2nd+Sex_female+Title_Miss+Title_Mr, data=train_titanic_sp, family='binomial')
+
+```
+```{r}
+predictions <- predict(model, newData=test_titanic_sp)
+predictions_details <- select(predictions, predictions$label, predictions$prediction)
+```
+
+```{r}
+# make sql temp view
+createOrReplaceTempView(predictions_details, "predictions_details")
+```
+
+```{r}
+TP <- sql("SELECT count(label) FROM predictions_details WHERE label = 1 AND prediction > 0.5")
+TP <- collect(TP)[[1]]
+TN <- sql("SELECT count(label) FROM predictions_details WHERE label = 0 AND prediction <= 0.5")
+TN <- collect(TN)[[1]]
+FP <- sql("SELECT count(label) FROM predictions_details WHERE label = 0 AND prediction > 0.5")
+FP <- collect(FP)[[1]]
+FN <- sql("SELECT count(label) FROM predictions_details WHERE label = 1 AND prediction <= 0.5")
+FN <- collect(FN)[[1]]
+accuracy = (TP + TN) / (TP + TN + FP + FN)
+print(paste0(round(accuracy * 100,2), '%'))
+```
+

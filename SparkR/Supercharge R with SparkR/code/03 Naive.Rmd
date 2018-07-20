@@ -1,0 +1,123 @@
+---
+title: "03 Naive"
+output: html_notebook
+---
+
+```{r}
+# Creating SparkR session
+Sys.setenv(SPARK_HOME = "/home/rajiv/spark/spark-2.3.0-bin-hadoop2.7")
+library(SparkR, lib.loc = c(file.path(Sys.getenv("SPARK_HOME"), "R", "lib")))
+sparkR.session(master = "local[*]", sparkConfig = list(spark.driver.memory = "2g"))
+```
+
+```{r}
+library(SparkR)
+library(datasets)
+titanic <- data.frame(Titanic)
+head(titanic)
+```
+```{r}
+titanicDF <- createDataFrame(titanic[titanic$Freq > 0, -5])
+nbDF <- titanicDF
+nbTestDF <- titanicDF
+nbModel <- spark.naiveBayes(nbDF, Survived ~ Class + Sex + Age)
+```
+
+```{r}
+summary(nbModel)
+```
+
+```{r}
+nbPredictions <- predict(nbModel, nbTestDF)
+showDF(nbPredictions)
+```
+```{r}
+golf_weather <- read.table(text = "Outlook	Temperature_Numeric	Temperature_Nominal	Humidity_Numeric	Humidity_Nominal	Windy	Play
+overcast	83	hot	86	high	FALSE	yes
+overcast	64	cool	65	normal	TRUE	yes
+overcast	72	mild	90	high	TRUE	yes
+overcast	81	hot	75	normal	FALSE	yes
+rainy	70	mild	96	high	FALSE	yes
+rainy	68	cool	80	normal	FALSE	yes
+rainy	65	cool	70	normal	TRUE	no
+rainy	75	mild	80	normal	FALSE	yes
+rainy	71	mild	91	high	TRUE	no
+sunny	85	hot	85	high	FALSE	no
+sunny	80	hot	90	high	TRUE	no
+sunny	72	mild	95	high	FALSE	no
+sunny	69	cool	70	normal	FALSE	yes
+sunny	75	mild	70	normal	TRUE	yes", header = TRUE, sep="\t")
+head(golf_weather)
+```
+```{r}
+golf_weather_sparkdf <- as.DataFrame(golf_weather)
+#golf_weather_model <- spark.naiveBayes(Play ~ ., data = golf_weather_sparkdf)
+# It will give error as Naivebayes work only on Categorical data
+library(dplyr)
+golf_weather <- golf_weather %>% select(-Humidity_Numeric, -Temperature_Numeric)
+str(golf_weather)
+```
+```{r}
+golf_weather_spark <- as.DataFrame(golf_weather)
+golf_weather_model <- spark.naiveBayes(Play ~ ., data = golf_weather_spark)
+summary(golf_weather_model)
+```
+
+```{r}
+head(predict(golf_weather_model, as.DataFrame(data.frame(Outlook = c('rainy'), Temperature_Nominal = c("hot"),Humidity_Nominal = c("normal"), Windy = c(TRUE)))), 1)
+```
+
+## Wine Quality Data Set
+
+```{r}
+# url https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-white.csv
+# url https://archive.ics.uci.edu/ml/machine-learning-databases/wine-quality/winequality-red.csv
+winequality_red <- read.csv("data/winequality-red.csv", sep = ";")
+winequality_white <- read.csv("data/winequality-white.csv", sep = ";")
+# binding both dataset together
+
+wine_quality <- rbind(winequality_red, winequality_white)
+
+head(wine_quality)
+# replace period in column names with underscore
+names(wine_quality) <- gsub(names(wine_quality), pattern = "\\.", replacement = "_")
+dim(wine_quality)
+head(wine_quality) # note that all data is numerical which is not fit for naivebayes
+```
+
+```{r}
+wine_quality$quality <- as.factor(wine_quality$quality)
+
+# split it into two parts
+set.seed(1234)
+random_splits <- runif(nrow(wine_quality))
+train_split_data <- wine_quality[random_splits < 0.5,]
+validate_split_data <- wine_quality[random_splits >= 0.5,]
+```
+
+```{r}
+# naiveBayes work even data is numerical
+library(e1071)
+wine_quality_model <- naiveBayes(quality ~ ., data = train_split_data)
+```
+
+```{r}
+head(wine_quality_model$tables$alcohol)
+```
+
+```{r}
+train_split_data_spark <- as.DataFrame(train_split_data)
+validate_split_data_spark <- as.DataFrame(validate_split_data)
+
+# make sql temp view in spark
+createOrReplaceTempView(train_split_data_spark, "train_split_data_spark_table")
+createOrReplaceTempView(validate_split_data_spark, "validate_split_data_spark_table")
+
+```
+
+Now it allow to work as sql
+```{r}
+sq <- sql("SELECT alcohol, NTILE(4) OVER (ORDER BY alcohol) as alchohol_quartiles FROM train_split_data_spark_table")
+collect(sq)
+```
+

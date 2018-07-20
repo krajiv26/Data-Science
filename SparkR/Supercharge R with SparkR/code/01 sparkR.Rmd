@@ -1,0 +1,73 @@
+---
+title: "01 SparkR"
+output: html_notebook
+---
+
+### Creating SparkR session
+
+```{r}
+Sys.setenv(SPARK_HOME = "/home/rajiv/spark/spark-2.3.0-bin-hadoop2.7")
+library(SparkR, lib.loc = c(file.path(Sys.getenv("SPARK_HOME"), "R", "lib")))
+sparkR.session(master = "local[*]", sparkConfig = list(spark.driver.memory = "2g"))
+```
+```{r}
+# Checking dimension of R dataset
+dim(faithful)
+```
+
+
+### Converting R dataset to sparkR
+```{r}
+faithful_spark_df <- as.DataFrame(faithful)
+# df is a sparkR dataframe now
+class(faithful_spark_df)
+# Displays the first part of the SparkDataFrame
+
+head(faithful_spark_df)
+```
+
+Actaully head is called from R
+```{r}
+#it is back to R
+class(head(df))
+```
+
+```{r}
+# Further use select get desired result
+head(select(faithful_spark_df, faithful_spark_df$eruptions))
+```
+
+```{r}
+# use filter 
+head(filter(faithful_spark_df, faithful_spark_df$eruptions > 3))
+```
+```{r}
+mtcars_spark_df <- as.DataFrame(mtcars)
+head(mtcars_spark_df)
+```
+```{r}
+head(select(mtcars_spark_df, mtcars_spark_df$cyl))
+```
+```{r}
+head(distinct(select(mtcars_spark_df, mtcars_spark_df$cyl)))
+```
+```{r}
+showDF(filter(mtcars_spark_df, mtcars_spark_df$hp > 200))
+```
+```{r}
+head(arrange(mtcars_spark_df, desc(mtcars_spark_df$mpg)))
+```
+
+```{r}
+head(summarize(groupBy(mtcars_spark_df, mtcars_spark_df$gear), count=n(mtcars_spark_df$gear)))
+```
+
+```{r}
+# library(magrittr)
+mtcars_spark_df %>% 
+groupBy(mtcars_spark_df$gear) %>% 
+agg('mean_mpg' = mean(mtcars_spark_df$mpg)) %>% 
+arrange(mtcars_spark_df$gear) %>%
+head()
+```
+
